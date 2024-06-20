@@ -1,0 +1,158 @@
+name: 'Wait for Checks'
+description: 'Wait for all checks to complete for a Pull Request, commit, branch or tag.'
+inputs:
+  github-token:
+    description: 'GitHub token.'
+    required: false
+    default: ${{ github.token }}
+  ref:
+    description: 'Specify a branch, tag or SHA. This defaults to the reference or SHA for the workflow event.'
+    required: false
+    default: ${{ github.ref || github.sha}}
+  timeout:
+    description: 'The time allowance in seconds for waiting the checks to pass.'
+    required: false
+    default: 0
+  checks-watch-interval:
+    description: 'Refresh interval in seconds when using waiting for checks.'
+    required: false
+    default: 10
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Get current workflow run
+      id: get-current-workflow-run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        echo "::notice::Workflow run id is $RUN_ID"
+
+        WORKFLOW_RUN=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/repos/$REPO/actions/runs/$RUN_ID" \
+          --jq 'pick (.name, .html_url, .path, .node_id)')
+        WORKFLOW_RUN_GLOBAL_ID=$(echo "$WORKFLOW_RUN" | jq -r '.node_id')
+        echo "::notice::Workflow run global id is $WORKFLOW_RUN_GLOBAL_ID"
+
+        # WORKFLOW=$(gh api graphql \
+        #     -H "X-Github-Next-Global-ID: 1" \
+        #     -f query='query {
+        #       node(id: "'"$WORKFLOW_RUN_GLOBAL_ID"'") {
+        #         ... on WorkflowRun {
+        #           workflow {
+        #             id
+        #             databaseId
+        #           }
+        #         }
+        #       }
+        #     }' \
+        #     --jq '.data.node.workflow')
+
+        JOB_IDS=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/repos/$REPO/actions/runs/$RUN_ID/jobs" \
+          --jq '[.jobs[].id]')
+        JOB_ID_LIST=$(echo $JOB_IDS | tr '\n' ',' | sed -E 's/,/, /g; s/, $/\n/g')
+        echo "::notice::Ids of all jobs in the workflow run are $JOB_ID_LIST"
+
+        echo "job-ids=$JOB_IDS" >> $GITHUB_OUTPUT
+
+    - name: Get git ref metadata
+      id: get-git-ref-metadata
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REF: ${{ inputs.ref }}
+      run: |
+        echo "::notice::Git reference is $REF"
+
+        REF_NAME=$(git name-rev --name-only "$REF")
+        if [[ "$REF" != "$REF_NAME" ]]; then
+          echo "::notice::$REF is $REF_NAME"
+        if
+
+        REF_FULL_NAME=$(git rev-parse --symbolic-full-name "$REF_NAME")
+        echo "ref-full-name=$REF_FULL_NAME" >> $GITHUB_OUTPUT
+        if [[ "$REF" != "$REF_NAME" -a "$REF" != "$REF_FULL_NAME" ]]; then
+          echo "::notice::$REF_NAME is $REF_FULL_NAME"
+        fi
+
+        REF_TYPE=$(echo "$REF_FULL_NAME" | cut -d '/' -f 2)
+        echo "ref-type=$REF_TYPE" >> $GITHUB_OUTPUT
+        echo "::notice::Type is $REF_TYPE"
+
+        SHA=$(git rev-parse --short "$REF_FULL_NAME")
+        echo "sha=$SHA" >> $GITHUB_OUTPUT
+        if [[ "$REF" != "$SHA" ]]; then
+          echo "::notice::$REF is $SHA"
+        if
+
+    - name: Watch checks
+      id: watch-checks
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ get-git-ref-metadata.outputs.sha }}
+        TIMEOUT: ${{ timeout }}
+        CHECKS_WATCH_INTERVAL: ${{ inputs.checks-watch-interval }}
+      run: |
+        CHECK_RUNS=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/repos/$REPO/commits/$SHA/check-runs" \
+          --jq '[.check_runs.[] | pick (.id, .external_id, .name, .html_url, .status, .conclusion)]')
+
+        INCOMPLETE_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.status != "complete")]')
+        INCOMPLETE_CHECK_COUNT=$(echo "$INCOMPLETE_CHECKS" | jq '. | length')
+        FAILED_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")]')
+        FAILED_CHECK_COUNT=$(echo "$FAILED_CHECKS" | jq '. | length')
+
+        while [[ $INCOMPLETE_CHECK_COUNT -gt 0 && $FAILED_CHECK_COUNT -eq 0 ]]
+        do
+          echo "::group::Number of pending checks: $INCOMPLETE_CHECK_COUNT"
+          sleep $CHECKS_WATCH_INTERVAL
+
+          CHECK_RUNS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/$REPO/commits/$SHA/check-runs" \
+            --jq '[.check_runs.[] | pick (.id, .external_id, .name, .html_url, .status, .conclusion)]')
+
+          INCOMPLETE_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.status != "complete")]')
+          INCOMPLETE_CHECK_COUNT=$(echo "$INCOMPLETE_CHECKS" | jq '. | length')
+          FAILED_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")]')
+          FAILED_CHECK_COUNT=$(echo "$FAILED_CHECKS" | jq '. | length')
+          echo "::endgroup::"
+        done
+
+        echo "check-runs=$CHECK_RUNS" >> $GITHUB_OUTPUT
+
+        if [[ $FAILED_CHECK_COUNT -gt 0 ]]
+        then
+          echo "conclusion=failure" >> $GITHUB_OUTPUT
+          echo "::error::Failed checks: $FAILED_CHECKS"
+          echo "::warning::Pending checks: $INCOMPLETE_CHECKS"
+          exit 1
+        else
+          echo "conclusion=success" >> $GITHUB_OUTPUT
+          SUCCESS_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion == "success")]')
+          echo "::info::Success checks: $SUCCESS_CHECKS"
+          SKIPPED_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion == "skipped")]')
+          echo "::info::Skipped checks: $SKIPPED_CHECKS"
+          NEUTRAL_CHECKS=$(echo "$CHECK_RUNS" | jq '[.[] | select(.conclusion == "neutral")]')
+          echo "::info::Neutral checks: $NEUTRAL_CHECKS"
+        fi
+
+branding:
+  icon: 'box'
+  color: 'yellow'
