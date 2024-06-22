@@ -193,16 +193,28 @@ runs:
           echo "conclusion=success" >> $GITHUB_OUTPUT
 
           SUCCESS_CHECKS=$(echo "$RELEVANT_CHECKS" | jq '[.[] | select(.conclusion == "success")]')
-          SUCCESS_CHECK_LIST=$(echo $SUCCESS_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
-          echo "::notice::Success checks: $SUCCESS_CHECK_LIST"
+          SUCCESS_CHECK_COUNT=$(echo "$SUCCESS_CHECKS" | jq '. | length')
+          if [[ $SUCCESS_CHECK_COUNT -gt 0 ]]
+          then
+            SUCCESS_CHECK_LIST=$(echo $SUCCESS_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
+            echo "::notice::Success checks: $SUCCESS_CHECK_LIST"
+          fi
 
           SKIPPED_CHECKS=$(echo "$RELEVANT_CHECKS" | jq '[.[] | select(.conclusion == "skipped")]')
-          SKIPPED_CHECK_LIST=$(echo $SKIPPED_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
-          echo "::notice::Skipped checks: $SKIPPED_CHECK_LIST"
+          SKIPPED_CHECK_COUNT=$(echo "$SKIPPED_CHECKS" | jq '. | length')
+          if [[ $SKIPPED_CHECK_COUNT -gt 0 ]]
+          then
+            SKIPPED_CHECK_LIST=$(echo $SKIPPED_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
+            echo "::notice::Skipped checks: $SKIPPED_CHECK_LIST"
+          fi
 
           NEUTRAL_CHECKS=$(echo "$RELEVANT_CHECKS" | jq '[.[] | select(.conclusion == "neutral")]')
-          NEUTRAL_CHECK_LIST=$(echo $NEUTRAL_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
-          echo "::notice::Neutral checks: $NEUTRAL_CHECK_LIST"
+          NEUTRAL_CHECK_COUNT=$(echo "$NEUTRAL_CHECKS" | jq '. | length')
+          if [[ $NEUTRAL_CHECK_COUNT -gt 0 ]]
+          then
+            NEUTRAL_CHECK_LIST=$(echo $NEUTRAL_CHECKS | jq -r '.[] | .name' | tr '\n' '\t' | sed -E 's/\t/, /g; s/, $/\n/g')
+            echo "::notice::Neutral checks: $NEUTRAL_CHECK_LIST"
+          fi
         fi
 
 branding:
