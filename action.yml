@@ -13,6 +13,10 @@ inputs:
     description: 'The time allowance in seconds for waiting the checks to pass.'
     required: false
     default: 0
+  fail-if-timeout:
+    description: 'Fail the workflow if timeout.'
+    required: false
+    default: false
   checks-watch-interval:
     description: 'Refresh interval in seconds when using waiting for checks.'
     required: false
@@ -125,8 +129,11 @@ runs:
         JOB_IDS: ${{ steps.get-current-workflow-run.outputs.job-ids }}
         SHA: ${{ steps.get-git-ref-metadata.outputs.sha }}
         TIMEOUT: ${{ inputs.timeout }}
+        FAIL-IF-TIMEOUT: ${{ inputs.fail-if-timeout }}
         CHECKS_WATCH_INTERVAL: ${{ inputs.checks-watch-interval }}
       run: |
+        WATCH_START=$SECONDS
+
         while :
         do
           sleep $CHECKS_WATCH_INTERVAL
@@ -168,13 +175,16 @@ runs:
           echo "$CHECK_RUNS_TEXT"
           echo "::endgroup::"
 
-          if [[ $INCOMPLETE_CHECK_COUNT -eq 0 || $FAILED_CHECK_COUNT -gt 0 ]]
+          WATCH_TIME=$((SECONDS - WATCH_START))
+
+          if [[ $INCOMPLETE_CHECK_COUNT -eq 0 || $FAILED_CHECK_COUNT -gt 0 || $WATCH_TIME -gt $TIMEOUT ]]
           then
             break
           fi
         done
 
         echo "check-runs=$CHECK_RUNS" >> $GITHUB_OUTPUT
+        echo "watch-time=$WATCH_TIME" >> $GITHUB_OUTPUT
 
         if [[ $FAILED_CHECK_COUNT -gt 0 ]]
         then
@@ -189,6 +199,21 @@ runs:
             echo "::warning::Pending checks: $INCOMPLETE_CHECK_LIST"
           fi
           exit 1
+        elif [[ $WATCH_TIME -gt $TIMEOUT ]]
+        then
+          if [[ "true True TRUE" =~ (^|[[:space:]])"$FAIL-IF-TIMEOUT"($|[[:space:]]) ]]
+          then
+            echo "conclusion=failure" >> $GITHUB_OUTPUT
+
+            echo "::error::Checks timeout. $TIMEOUT seconds allowed; $WATCH_TIME seconds used."
+
+            exit 1
+          elif [[ "false False FALSE" =~ (^|[[:space:]])"$FAIL-IF-TIMEOUT"($|[[:space:]]) ]]
+          then
+            echo "conclusion=success" >> $GITHUB_OUTPUT
+
+            echo "::notice::Checks timeout. $TIMEOUT seconds allowed; $WATCH_TIME seconds used."
+          fi
         else
           echo "conclusion=success" >> $GITHUB_OUTPUT
 
