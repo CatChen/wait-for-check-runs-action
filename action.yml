@@ -127,45 +127,7 @@ runs:
         TIMEOUT: ${{ inputs.timeout }}
         CHECKS_WATCH_INTERVAL: ${{ inputs.checks-watch-interval }}
       run: |
-        echo "::group::Checks"
-        CHECK_RUNS=$(gh api \
-          -H "Accept: application/vnd.github+json" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          "/repos/$REPO/commits/$SHA/check-runs" \
-          --jq '[.check_runs.[] | pick (.id, .external_id, .name, .html_url, .status, .conclusion)]')
-
-        EXTERNAL_IDS=$(echo "$CHECK_RUNS" |
-          jq -c --argjson job_ids "$JOB_IDS" \
-          '[.[] | select(.id | [.] | inside($job_ids)) | .external_id ]')
-        EXTERNAL_ID_LIST=$(echo "$EXTERNAL_IDS" | jq -r '.[]' | tr '\n' ',' | sed -E 's/,/, /g; s/, $/\n/g')
-        echo "::notice::External ids associated with any job in the workflow run are $EXTERNAL_ID_LIST"
-        echo "$EXTERNAL_IDS" | jq '.'
-
-        RELEVANT_CHECKS=$(echo "$CHECK_RUNS" |
-          jq \
-          --argjson job_ids "$JOB_IDS" \
-          --argjson external_ids "$EXTERNAL_IDS" \
-          '[.[] | select(.id | [.] | inside($job_ids) | not) | select(.external_id | [.] | inside($external_ids) | not)]')
-
-        INCOMPLETE_CHECKS=$(echo "$RELEVANT_CHECKS" | jq '[.[] | select(.status != "completed")]')
-        INCOMPLETE_CHECK_COUNT=$(echo "$INCOMPLETE_CHECKS" | jq '. | length')
-
-        FAILED_CHECKS=$(echo "$RELEVANT_CHECKS" | jq '[.[] | select(.status == "completed" and (.conclusion == null or (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")))]')
-        FAILED_CHECK_COUNT=$(echo "$FAILED_CHECKS" | jq '. | length')
-
-        CHECK_RUNS_TEXT=$(echo "$CHECK_RUNS" | jq -r \
-          --argjson job_ids "$JOB_IDS" \
-          --argjson external_ids "$EXTERNAL_IDS" \
-          '.[] | 
-          .name + "\n" + 
-          "  Id: " + (.id | tostring) + " (" + .html_url + ")\n" + 
-          "  Status: " + .status + "\n" + 
-          "  Conclusion: " + .conclusion + "\n" + 
-          (if .id | [.] | inside($job_ids) then "  This check is a job in the current Workflow.\n" elif .external_id | [.] | inside($external_ids) then "  This check is a job in another instance of the same Workflow.\n" else "" end)')
-        echo "$CHECK_RUNS_TEXT"
-        echo "::endgroup::"
-
-        while [[ $INCOMPLETE_CHECK_COUNT -gt 0 && $FAILED_CHECK_COUNT -eq 0 ]]
+        while :
         do
           sleep $CHECKS_WATCH_INTERVAL
 
@@ -175,14 +137,12 @@ runs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "/repos/$REPO/commits/$SHA/check-runs" \
             --jq '[.check_runs.[] | pick (.id, .external_id, .name, .html_url, .status, .conclusion)]')
-          echo "::notice::$CHECK_RUNS"
 
           EXTERNAL_IDS=$(echo "$CHECK_RUNS" |
             jq -c --argjson job_ids "$JOB_IDS" \
             '[.[] | select(.id | [.] | inside($job_ids)) | .external_id ]')
           EXTERNAL_ID_LIST=$(echo "$EXTERNAL_IDS" | jq -r '.[]' | tr '\n' ',' | sed -E 's/,/, /g; s/, $/\n/g')
           echo "::notice::External ids associated with any job in the workflow run are $EXTERNAL_ID_LIST"
-          echo "$EXTERNAL_IDS" | jq '.'
 
           RELEVANT_CHECKS=$(echo "$CHECK_RUNS" |
             jq \
@@ -207,6 +167,11 @@ runs:
             (if .id | [.] | inside($job_ids) then "  This check is a job in the current Workflow.\n" elif .external_id | [.] | inside($external_ids) then "  This check is a job in another instance of the same Workflow.\n" else "" end)')
           echo "$CHECK_RUNS_TEXT"
           echo "::endgroup::"
+
+          if [[ $INCOMPLETE_CHECK_COUNT -eq 0 || $FAILED_CHECK_COUNT -gt 0 ]]
+          then
+            break
+          fi
         done
 
         echo "check-runs=$CHECK_RUNS" >> $GITHUB_OUTPUT
