@@ -1,4 +1,4 @@
-name: 'Wait for Checks'
+name: 'Wait for Check Runs'
 description: 'Wait for all checks to complete for a Pull Request, commit, branch or tag.'
 inputs:
   github-token:
