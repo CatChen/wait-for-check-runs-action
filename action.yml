@@ -129,7 +129,7 @@ runs:
         JOB_IDS: ${{ steps.get-current-workflow-run.outputs.job-ids }}
         SHA: ${{ steps.get-git-ref-metadata.outputs.sha }}
         TIMEOUT: ${{ inputs.timeout }}
-        FAIL-IF-TIMEOUT: ${{ inputs.fail-if-timeout }}
+        FAIL_IF_TIMEOUT: ${{ inputs.fail-if-timeout }}
         CHECKS_WATCH_INTERVAL: ${{ inputs.checks-watch-interval }}
       run: |
         WATCH_START=$SECONDS
@@ -201,18 +201,23 @@ runs:
           exit 1
         elif [[ $WATCH_TIME -gt $TIMEOUT ]]
         then
-          if [[ "true True TRUE" =~ (^|[[:space:]])"$FAIL-IF-TIMEOUT"($|[[:space:]]) ]]
+          if [[ "true True TRUE" =~ (^|[[:space:]])"$FAIL_IF_TIMEOUT"($|[[:space:]]) ]]
           then
             echo "conclusion=failure" >> $GITHUB_OUTPUT
 
             echo "::error::Checks timeout. $TIMEOUT seconds allowed; $WATCH_TIME seconds used."
 
             exit 1
-          elif [[ "false False FALSE" =~ (^|[[:space:]])"$FAIL-IF-TIMEOUT"($|[[:space:]]) ]]
+          elif [[ "false False FALSE" =~ (^|[[:space:]])"$FAIL_IF_TIMEOUT"($|[[:space:]]) ]]
           then
             echo "conclusion=success" >> $GITHUB_OUTPUT
 
             echo "::notice::Checks timeout. $TIMEOUT seconds allowed; $WATCH_TIME seconds used."
+          else
+            echo "::error::fail-if-timeout is $FAIL_IF_TIMEOUT"
+            echo "::error::fail-if-timeout should be a boolean."
+
+            exit 1
           fi
         else
           echo "conclusion=success" >> $GITHUB_OUTPUT
