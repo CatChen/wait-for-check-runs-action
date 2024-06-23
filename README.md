@@ -1,4 +1,4 @@
-# wait-for-checks-action
+# wait-for-check-runs-action
 
 [![Test](https://github.com/CatChen/wait-for-checks-action/actions/workflows/test.yml/badge.svg)](https://github.com/CatChen/check-git-status-action/actions/workflows/test.yml)
 [![Ship](https://github.com/CatChen/wait-for-checks-action/actions/workflows/ship.yml/badge.svg)](https://github.com/CatChen/check-git-status-action/actions/workflows/ship.yml)
