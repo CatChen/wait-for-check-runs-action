@@ -19,6 +19,7 @@ on:
 jobs:
   test:
     name: Test
+    if: ${{ !startsWith(github.head_ref, 'workflows/tests/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
